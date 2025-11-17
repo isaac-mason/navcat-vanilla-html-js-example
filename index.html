@@ -1,0 +1,198 @@
+<html>
+<!-- NOTE: when updating navcat, ensure the version of mathcat matches the version in navcat's package.json dependencies -->
+<script type="importmap">
+    {
+      "imports": {
+        "navcat": "https://unpkg.com/navcat@0.1.0/dist/index.js",
+        "navcat/blocks": "https://unpkg.com/navcat@0.1.0/dist/blocks.js",
+        "navcat/three": "https://unpkg.com/navcat@0.1.0/dist/three.js",
+        "mathcat": "https://unpkg.com/mathcat@0.0.6/dist/index.js",
+        "three": "https://unpkg.com/three@0.181.0/build/three.module.js",
+        "three/addons/lines/LineMaterial.js": "https://unpkg.com/three@0.181.0/examples/jsm/lines/LineMaterial.js",
+        "three/addons/lines/Line2.js": "https://unpkg.com/three@0.181.0/examples/jsm/lines/Line2.js",
+        "three/addons/lines/LineGeometry.js": "https://unpkg.com/three@0.181.0/examples/jsm/lines/LineGeometry.js",
+        "three/examples/jsm/controls/OrbitControls": "https://unpkg.com/three@0.181.0/examples/jsm/controls/OrbitControls.js"
+      }
+    }
+  </script>
+<script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+    import { generateSoloNavMesh } from "navcat/blocks";
+    import { getPositionsAndIndices, createNavMeshHelper } from "navcat/three";
+    import { findPath, ANY_QUERY_FILTER } from "navcat";
+    import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+    import { Line2 } from "three/addons/lines/Line2.js";
+    import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+
+    // setup scene
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(10, 10, -10);
+
+    const orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.enableDamping = true;
+
+    // add some meshes
+    const ground = new THREE.Mesh(
+        new THREE.BoxGeometry(10, 1, 10),
+        new THREE.MeshBasicMaterial({ color: "#333" })
+    );
+    ground.position.set(0, -0.5, 0);
+
+    scene.add(ground);
+
+    const boxOne = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 2, 1),
+        new THREE.MeshBasicMaterial({ color: "#555" })
+    );
+    boxOne.rotation.y = Math.PI / 4;
+    boxOne.position.set(-2, 1, 0);
+    scene.add(boxOne);
+
+    const boxTwo = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 2, 1),
+        new THREE.MeshBasicMaterial({ color: "#555" })
+    );
+    boxTwo.rotation.y = Math.PI / 4;
+    boxTwo.position.set(2, 1, 0);
+    scene.add(boxTwo);
+
+    // get the positions and indices that we want to generate a navmesh from
+    const [positions, indices] = getPositionsAndIndices([
+        ground,
+        boxOne,
+        boxTwo,
+    ]);
+
+    const navMeshInput = {
+        positions,
+        indices,
+    };
+
+    const cellSize = 0.15;
+    const cellHeight = 0.15;
+
+    const walkableRadiusWorld = 0.1;
+    const walkableRadiusVoxels = Math.ceil(walkableRadiusWorld / cellSize);
+    const walkableClimbWorld = 0.5;
+    const walkableClimbVoxels = Math.ceil(walkableClimbWorld / cellHeight);
+    const walkableHeightWorld = 0.25;
+    const walkableHeightVoxels = Math.ceil(walkableHeightWorld / cellHeight);
+    const walkableSlopeAngleDegrees = 45;
+
+    const borderSize = 4;
+    const minRegionArea = 8;
+    const mergeRegionArea = 20;
+
+    const maxSimplificationError = 1.3;
+    const maxEdgeLength = 12;
+
+    const maxVerticesPerPoly = 5;
+
+    const detailSampleDistanceVoxels = 6;
+    const detailSampleDistance =
+        detailSampleDistanceVoxels < 0.9
+            ? 0
+            : cellSize * detailSampleDistanceVoxels;
+
+    const detailSampleMaxErrorVoxels = 1;
+    const detailSampleMaxError = cellHeight * detailSampleMaxErrorVoxels;
+
+    const navMeshConfig = {
+        cellSize,
+        cellHeight,
+        walkableRadiusWorld,
+        walkableRadiusVoxels,
+        walkableClimbWorld,
+        walkableClimbVoxels,
+        walkableHeightWorld,
+        walkableHeightVoxels,
+        walkableSlopeAngleDegrees,
+        borderSize,
+        minRegionArea,
+        mergeRegionArea,
+        maxSimplificationError,
+        maxEdgeLength,
+        maxVerticesPerPoly,
+        detailSampleDistance,
+        detailSampleMaxError,
+    };
+
+    const navMeshResult = generateSoloNavMesh(navMeshInput, navMeshConfig);
+    const navMesh = navMeshResult.navMesh;
+
+    const navMeshHelper = createNavMeshHelper(navMesh);
+    navMeshHelper.object.position.y += 0.1;
+    scene.add(navMeshHelper.object);
+
+    // compute a path
+    const start = [-4, 0, -4];
+    const end = [4, 0, 4];
+    const halfExtents = [0.05, 0.1, 0.05];
+    const findPathResult = findPath(navMesh, start, end, halfExtents, ANY_QUERY_FILTER);
+    console.log(findPathResult);
+    const pathPositions = findPathResult.path.map((p) => p.position);
+
+    // draw the path start
+    const startMarker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.1, 0.1),
+        new THREE.MeshBasicMaterial({ color: 'blue' })
+    );
+    startMarker.position.set(start[0], start[1] + 0.45, start[2]);
+    scene.add(startMarker);
+
+    // draw the path end
+    const endMarker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.1, 0.1),
+        new THREE.MeshBasicMaterial({ color: 'green' })
+    );
+    endMarker.position.set(end[0], end[1] + 0.45, end[2]);
+    scene.add(endMarker);
+
+    // draw the path line
+    const line = new Line2(
+        new LineGeometry().setPositions(
+            pathPositions.flatMap(([x, y, z]) => [x, y + 0.2, z])
+        ),
+        new LineMaterial({ color: 'blue', linewidth: 2 })
+    );
+    line.position.y += 0.2;
+    scene.add(line);
+    line.computeLineDistances();
+
+    // handle resizing
+    const onWindowResize = () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+    onWindowResize();
+
+    window.addEventListener("resize", onWindowResize);
+
+    // animate
+    const animate = () => {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+        orbitControls.update();
+    };
+
+    animate();
+</script>
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+    }
+
+    canvas {
+        width: 100%;
+        height: 100vh;
+    }
+</style>
+
+</html>
